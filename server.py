@@ -1,8 +1,29 @@
-from mcp.server.fastmcp import FastMCP
+from dataclasses import dataclass
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from mcp.server.fastmcp import FastMCP, Context
 
 from test_detector import detect_test_type, TestType
 
-mcp = FastMCP('python-docker-mcp')
+
+@dataclass
+class AppContext:
+    full_path: str
+
+
+@asynccontextmanager
+async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+    """Manage application lifecycle with type-safe context"""
+    # Initialize on startup
+    db = await Database.connect()
+    try:
+        yield AppContext(db=db)
+    finally:
+        # Cleanup on shutdown
+        await db.disconnect()
+
+
+mcp = FastMCP('python-docker-mcp', lifespan=app_lifespan)
 
 
 @mcp.tool()
@@ -56,7 +77,7 @@ def run_single_test(filepath: str, test_name: str) -> str:
     test_type = detect_test_type(filepath)
     if test_type == TestType.PYTEST:
         return run_in_docker(f"pytest {filepath}::{test_name}")
-    elif test_type == TestType.UNITTEST:
+    elif test_type == TestType.UNITTEST:    
         return run_in_docker(f"python -m unittest {filepath}.{test_name}")
     else:
         return f"Unable to detect test framework in {filepath}"
